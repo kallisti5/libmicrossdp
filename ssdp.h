@@ -78,7 +78,7 @@ struct upnp_device {
 };
 
 
-struct upnp_device* ssdp_discovery(int family, int wait, unsigned int category);
+struct upnp_device* ssdp_discovery(int family, unsigned int category, struct upnp_device* devices);
 
 
 #endif /*INCLUDE_SSDP_H*/

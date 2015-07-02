@@ -10,27 +10,15 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <time.h>
-
-#ifdef __linux__
-#include <linux/in.h>
-#endif
 
 #include "ssdp.h"
 
 
-static int
-ssdp_catlookup(char buffer[SSDP_PACKET_BUFFER])
-{
-
-
-
-}
-
-
 struct upnp_device* 
-ssdp_discovery(int family, int wait, unsigned int category)
+ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 {
 	struct in_addr localInterface;
 	struct sockaddr_in groupSock;
@@ -42,8 +30,8 @@ ssdp_discovery(int family, int wait, unsigned int category)
 	// Reuse socket
 	int reuse = 1;
 	setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse, sizeof(reuse));
-	// 1 second timeout on recvfrom
-	int timeout = 2000;
+	// 2 second timeout on recvfrom
+	int timeout = 100;
 	setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
 	char loopch = 0;
 	setsockopt(udpSocket, IPPROTO_IP, IP_MULTICAST_LOOP, (char*)&loopch, sizeof(loopch));
@@ -67,31 +55,44 @@ ssdp_discovery(int family, int wait, unsigned int category)
 	setsockopt(udpSocket, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char *)&group, sizeof(group));
 
 	// ssdp:all?
-	char search[SSDP_PACKET_BUFFER];
-	sprintf(search, "M-SEARCH * HTTP/1.1\r\nHOST: %s:%d\r\nST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: 3\r\n\r\n",
-		"239.255.255.250", 1900, "urn:schemas-upnp-org:device:MediaServer:1");
 
-	printf("query:\n%s", search);
+	int dcpIndex = 0;
 
-	sendto(udpSocket, search, sizeof(search), 0, (struct sockaddr*)&groupSock, sizeof(groupSock));
+	for (dcpIndex = 0; dcpIndex < (sizeof(kKnownDCP) / sizeof(kKnownDCP[0])); dcpIndex++) {
+		// Skip dcp's not matching our category filter
+		if (kKnownDCP[dcpIndex].category != category)
+			continue;
 
-	time_t start = time(NULL);
-	while ((time(NULL) - start) < 6) {
-		struct sockaddr_in si_other;
-		socklen_t slen = sizeof(si_other);
-		char buffer[SSDP_PACKET_BUFFER] = "\0";
-		recvfrom(udpSocket, buffer, SSDP_PACKET_BUFFER, 0, (struct sockaddr *) &si_other, &slen);
-		// Weed out random NOTIFY's we don't care about
-		if (strstr(buffer, "HTTP/1.1 200 OK") != NULL) {
-			printf("------------------\n");
-			printf("response:\n");
-			printf("%s\n", buffer);
-			// Reset timer when response
-			start = time(NULL);
+		// form our query
+		char si[128];
+		snprintf(si, 128, "%s%s", URN_SCHEMA_DEVICE, kKnownDCP[dcpIndex].type);
+		char search[SSDP_PACKET_BUFFER] = "\0";
+		snprintf(search, SSDP_PACKET_BUFFER, "M-SEARCH * HTTP/1.1\r\nHOST: %s:%d\r\nST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: 3\r\n\r\n",
+			"239.255.255.250", 1900, si);
+		printf("query:\n%s", search);
+
+		// ask
+		sendto(udpSocket, search, SSDP_PACKET_BUFFER, 0, (struct sockaddr*)&groupSock, sizeof(groupSock));
+
+		// parse responses
+		time_t start = time(NULL);
+		while ((time(NULL) - start) < 6) {
+			struct sockaddr_in si_other;
+			socklen_t slen = sizeof(si_other);
+			char buffer[SSDP_PACKET_BUFFER] = "";
+			recvfrom(udpSocket, buffer, SSDP_PACKET_BUFFER, 0, (struct sockaddr*)&si_other, &slen);
+			// HTTP/1.1's are responses. NOTIFY are random broadcasts
+			if (strstr(buffer, "HTTP/1.1 200 OK") != NULL) {
+				printf("------------------\n");
+				printf("response:\n");
+				printf("%s\n", buffer);
+				// Reset timer when response
+				start = time(NULL);
+			}
 		}
 	}
 
-	close(udpSocket);
+	shutdown(udpSocket, 0);
 
 	return NULL;
 }
@@ -100,8 +101,8 @@ ssdp_discovery(int family, int wait, unsigned int category)
 int
 main()
 {
-	ssdp_discovery(AF_INET, 200, SSDP_CAT_PRINTER);
-
+	struct upnp_device devices[255];
+	ssdp_discovery(AF_INET, SSDP_CAT_AV, devices);
 
 	return 0;
 }
