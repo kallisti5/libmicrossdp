@@ -12,6 +12,7 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <time.h>
 
 #include "ssdp.h"
@@ -30,9 +31,11 @@ ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 	// Reuse socket
 	int reuse = 1;
 	setsockopt(udpSocket, SOL_SOCKET, SO_REUSEADDR, (char*)&reuse, sizeof(reuse));
-	// 2 second timeout on recvfrom
-	int timeout = 100;
-	setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
+	// 100ms second timeout on recvfrom
+	struct timeval tv;
+	tv.tv_sec = 1;
+	tv.tv_usec = 0;
+	setsockopt(udpSocket, SOL_SOCKET, SO_RCVTIMEO, (char*)&tv, sizeof(tv));
 	char loopch = 0;
 	setsockopt(udpSocket, IPPROTO_IP, IP_MULTICAST_LOOP, (char*)&loopch, sizeof(loopch));
 
@@ -67,7 +70,7 @@ ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 		char si[128];
 		snprintf(si, 128, "%s%s", URN_SCHEMA_DEVICE, kKnownDCP[dcpIndex].type);
 		char search[SSDP_PACKET_BUFFER] = "\0";
-		snprintf(search, SSDP_PACKET_BUFFER, "M-SEARCH * HTTP/1.1\r\nHOST: %s:%d\r\nST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: 3\r\n\r\n",
+		snprintf(search, SSDP_PACKET_BUFFER, "M-SEARCH * HTTP/1.1\r\nHOST: %s:%d\r\nST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\n\r\n",
 			"239.255.255.250", 1900, si);
 		printf("query:\n%s", search);
 
@@ -76,7 +79,7 @@ ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 
 		// parse responses
 		time_t start = time(NULL);
-		while ((time(NULL) - start) < 6) {
+		while ((time(NULL) - start) < 3) {
 			struct sockaddr_in si_other;
 			socklen_t slen = sizeof(si_other);
 			char buffer[SSDP_PACKET_BUFFER] = "";
@@ -103,6 +106,7 @@ main()
 {
 	struct upnp_device devices[255];
 	ssdp_discovery(AF_INET, SSDP_CAT_AV, devices);
+	//ssdp_discovery(AF_INET, SSDP_CAT_PRINTER, devices);
 
 	return 0;
 }
