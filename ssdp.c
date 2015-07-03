@@ -28,12 +28,20 @@ ssdp_packettodevice(char* buffer, struct upnp_device* device)
 	// TODO: Could be more robust.
 
 	char* match;
+	// Match LOCATION / Location
 	if ((match = strstr(buffer, "LOCATION:")) != NULL) {
 		int len = strcspn(match, "\r\n");
 		if (len >= SSDP_TXT_LEN - 10)
 			len = SSDP_TXT_LEN - 10;
 		strncpy(device->location, match + 10, len - 10);
+	} else if ((match = strstr(buffer, "Location:")) != NULL) {
+		int len = strcspn(match, "\r\n");
+		if (len >= SSDP_TXT_LEN - 10)
+			len = SSDP_TXT_LEN - 10;
+		strncpy(device->location, match + 10, len - 10);
 	}
+
+	// Match ST
 	if ((match = strstr(buffer, "ST:")) != NULL) {
 		int len = strcspn(match, "\r\n");
 		if (len >= SSDP_TXT_LEN - 4)
@@ -91,15 +99,15 @@ ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 
 	for (dcpIndex = 0; dcpIndex < (sizeof(kKnownDCP) / sizeof(kKnownDCP[0])); dcpIndex++) {
 		// Skip dcp's not matching our category filter
-		if (kKnownDCP[dcpIndex].category != category || count >= SSDP_MAX)
+		if (((kKnownDCP[dcpIndex].category & category) == 0) || count >= SSDP_MAX)
 			continue;
 
+		//printf("seeking: %s\n", kKnownDCP[dcpIndex].type);
+
 		// form our query
-		char si[128];
-		snprintf(si, 128, "%s%s", URN_SCHEMA_DEVICE, kKnownDCP[dcpIndex].type);
 		char search[SSDP_PACKET_BUFFER] = "\0";
 		snprintf(search, SSDP_PACKET_BUFFER, "M-SEARCH * HTTP/1.1\r\nHOST: %s:%d\r\nST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\n\r\n",
-			"239.255.255.250", 1900, si);
+			"239.255.255.250", 1900, kKnownDCP[dcpIndex].type);
 		//printf("query:\n%s", search);
 
 		// ask
@@ -137,7 +145,7 @@ int
 main()
 {
 	struct upnp_device devices[SSDP_MAX];
-	int found = ssdp_discovery(AF_INET, SSDP_CAT_PRINTER, devices);
+	int found = ssdp_discovery(AF_INET, SSDP_CAT_PRINTER | SSDP_CAT_SCANNER, devices);
 
 	printf("Discovered %d devices:\n", found);
 	int index = 0;
