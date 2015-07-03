@@ -8,7 +8,9 @@
  */
 
 
+#include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
@@ -18,13 +20,38 @@
 #include "ssdp.h"
 
 
-struct upnp_device* 
+void
+ssdp_packettodevice(char* buffer, struct upnp_device* device)
+{
+	assert(device);
+
+	// TODO: Could be more robust.
+
+	char* match;
+	if ((match = strstr(buffer, "LOCATION:")) != NULL) {
+		int len = strcspn(match, "\r\n");
+		if (len >= SSDP_TXT_LEN - 10)
+			len = SSDP_TXT_LEN - 10;
+		strncpy(device->location, match + 10, len - 10);
+	}
+	if ((match = strstr(buffer, "ST:")) != NULL) {
+		int len = strcspn(match, "\r\n");
+		if (len >= SSDP_TXT_LEN - 4)
+			len = SSDP_TXT_LEN - 4;
+		strncpy(device->type, match + 4, len - 4);
+	}
+}
+
+
+int
 ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 {
 	struct in_addr localInterface;
 	struct sockaddr_in groupSock;
 	struct sockaddr_in localSock;
 	struct ip_mreq group;
+
+	assert(devices);
 
 	int udpSocket = socket(family, SOCK_DGRAM, 0);
 
@@ -60,10 +87,11 @@ ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 	// ssdp:all?
 
 	int dcpIndex = 0;
+	int count = 0;
 
 	for (dcpIndex = 0; dcpIndex < (sizeof(kKnownDCP) / sizeof(kKnownDCP[0])); dcpIndex++) {
 		// Skip dcp's not matching our category filter
-		if (kKnownDCP[dcpIndex].category != category)
+		if (kKnownDCP[dcpIndex].category != category || count >= SSDP_MAX)
 			continue;
 
 		// form our query
@@ -72,7 +100,7 @@ ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 		char search[SSDP_PACKET_BUFFER] = "\0";
 		snprintf(search, SSDP_PACKET_BUFFER, "M-SEARCH * HTTP/1.1\r\nHOST: %s:%d\r\nST: %s\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\n\r\n",
 			"239.255.255.250", 1900, si);
-		printf("query:\n%s", search);
+		//printf("query:\n%s", search);
 
 		// ask
 		sendto(udpSocket, search, SSDP_PACKET_BUFFER, 0, (struct sockaddr*)&groupSock, sizeof(groupSock));
@@ -86,9 +114,13 @@ ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 			recvfrom(udpSocket, buffer, SSDP_PACKET_BUFFER, 0, (struct sockaddr*)&si_other, &slen);
 			// HTTP/1.1's are responses. NOTIFY are random broadcasts
 			if (strstr(buffer, "HTTP/1.1 200 OK") != NULL) {
+				#if 0
 				printf("------------------\n");
 				printf("response:\n");
 				printf("%s\n", buffer);
+				#endif
+				ssdp_packettodevice(buffer, &devices[count]);
+				count++;
 				// Reset timer when response
 				start = time(NULL);
 			}
@@ -97,16 +129,21 @@ ssdp_discovery(int family, unsigned int category, struct upnp_device* devices)
 
 	shutdown(udpSocket, 0);
 
-	return NULL;
+	return count;
 }
 
 
 int
 main()
 {
-	struct upnp_device devices[255];
-	ssdp_discovery(AF_INET, SSDP_CAT_AV, devices);
-	//ssdp_discovery(AF_INET, SSDP_CAT_PRINTER, devices);
+	struct upnp_device devices[SSDP_MAX];
+	int found = ssdp_discovery(AF_INET, SSDP_CAT_PRINTER, devices);
+
+	printf("Discovered %d devices:\n", found);
+	int index = 0;
+	for (index = 0; index < found; index++) {
+		printf("\t'%s' - '%s'\n", devices[index].type, devices[index].location);
+	}
 
 	return 0;
 }

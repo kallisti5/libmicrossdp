@@ -32,6 +32,9 @@
 
 #define URN_SCHEMA_DEVICE			"urn:schemas-upnp-org:device:"
 #define SSDP_PACKET_BUFFER			1024
+#define SSDP_TXT_LEN				512
+
+#define SSDP_MAX					255
 
 /* Device definitions */
 const struct upnp_dcp {
@@ -72,13 +75,12 @@ const struct upnp_dcp {
 
 struct upnp_device {
 	unsigned int    category;
-	const char*     type;
-	const char*		url;
-	const char*		ip;
+	char			type[SSDP_TXT_LEN];
+	char			location[SSDP_TXT_LEN];
 };
 
 
-struct upnp_device* ssdp_discovery(int family, unsigned int category, struct upnp_device* devices);
+int ssdp_discovery(int family, unsigned int category, struct upnp_device* devices);
 
 
 #endif /*INCLUDE_SSDP_H*/
